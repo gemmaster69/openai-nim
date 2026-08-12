@@ -10,7 +10,12 @@ app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'NIM proxy is running' });
+  res.json({
+    status: 'ok',
+    message: 'NIM proxy is running',
+    reasoning_display: SHOW_REASONING,
+    thinking_mode: ENABLE_THINKING_MODE
+  });
 });
 
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
