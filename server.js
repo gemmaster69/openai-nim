@@ -21,6 +21,25 @@ function parseBoolEnv(value, defaultValue) {
 const SHOW_REASONING = parseBoolEnv(process.env.SHOW_REASONING, false);
 const ENABLE_THINKING_MODE = parseBoolEnv(process.env.ENABLE_THINKING_MODE, false);
 
+// Different model families on NVIDIA NIM expect different shapes for the
+// "enable thinking" flag. Sending the wrong shape to a given family causes
+// NIM to respond with a 400. Build the right extra_body per model here.
+function buildThinkingExtraBody(nimModel) {
+  if (!ENABLE_THINKING_MODE) return undefined;
+
+  const modelLower = (nimModel || '').toLowerCase();
+
+  // DeepSeek (V3.1/V4/R1 family) - uses its own top-level "thinking" object,
+  // NOT chat_template_kwargs.
+  if (modelLower.includes('deepseek')) {
+    return { thinking: { type: 'enabled' } };
+  }
+
+  // Most other reasoning-capable NIM models (Qwen, GLM, Nemotron, etc.)
+  // use chat_template_kwargs with either "thinking" or "enable_thinking".
+  return { chat_template_kwargs: { thinking: true, enable_thinking: true } };
+}
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -37,7 +56,18 @@ const MODEL_MAPPING = {
   'gpt-4o': 'deepseek-ai/deepseek-v3.1',
   'claude-3-opus': 'openai/gpt-oss-120b',
   'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking',
+  // --- DeepSeek family: exact names you can type directly in Janitor AI ---
+  'deepseek-v3.1': 'deepseek-ai/deepseek-v3.1',
+  'deepseek-3.1': 'deepseek-ai/deepseek-v3.1',
+  'deepseek-v3.2': 'deepseek-ai/deepseek-v3.2',
+  'deepseek-3.2': 'deepseek-ai/deepseek-v3.2',
+  'deepseek-v4-flash': 'deepseek-ai/deepseek-v4-flash',
+  'deepseek-v4-pro': 'deepseek-ai/deepseek-v4-pro',
+  'deepseek-flash': 'deepseek-ai/deepseek-v4-flash',
+  'deepseek-pro': 'deepseek-ai/deepseek-v4-pro',
+  // bare "deepseek" defaults to the newest/strongest general model
+  'deepseek': 'deepseek-ai/deepseek-v4-pro'
 };
 
 app.get('/health', (req, res) => {
@@ -80,7 +110,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       messages: messages,
       temperature: temperature || 0.6,
       max_tokens: max_tokens || 9024,
-      extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
+      extra_body: buildThinkingExtraBody(nimModel),
       stream: stream || false
     };
 
