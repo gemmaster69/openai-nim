@@ -9,6 +9,18 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
+const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
+const NIM_API_KEY = process.env.NIM_API_KEY;
+
+// Helper to parse boolean-like env vars ("true", "1", "yes" => true)
+function parseBoolEnv(value, defaultValue) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  return ['true', '1', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
+const SHOW_REASONING = parseBoolEnv(process.env.SHOW_REASONING, false);
+const ENABLE_THINKING_MODE = parseBoolEnv(process.env.ENABLE_THINKING_MODE, false);
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -17,12 +29,6 @@ app.get('/', (req, res) => {
     thinking_mode: ENABLE_THINKING_MODE
   });
 });
-
-const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
-const NIM_API_KEY = process.env.NIM_API_KEY;
-
-const SHOW_REASONING = false;
-const ENABLE_THINKING_MODE = false;
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
@@ -92,7 +98,6 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.setHeader('Connection', 'keep-alive');
 
       let buffer = '';
-
       response.data.on('data', (chunk) => {
         buffer += chunk.toString();
         const lines = buffer.split('\n');
@@ -109,7 +114,9 @@ app.post('/v1/chat/completions', async (req, res) => {
               if (data.choices?.[0]?.delta) {
                 const content = data.choices[0].delta.content;
                 data.choices[0].delta.content = content || '';
-                delete data.choices[0].delta.reasoning_content;
+                if (!SHOW_REASONING) {
+                  delete data.choices[0].delta.reasoning_content;
+                }
               }
               res.write(`data: ${JSON.stringify(data)}\n\n`);
             } catch (e) {
@@ -132,9 +139,11 @@ app.post('/v1/chat/completions', async (req, res) => {
         model: model,
         choices: response.data.choices.map(choice => {
           let fullContent = choice.message?.content || '';
+
           if (SHOW_REASONING && choice.message?.reasoning_content) {
             fullContent = '<think>\n' + choice.message.reasoning_content + '\n</think>\n\n' + fullContent;
           }
+
           return {
             index: choice.index,
             message: {
@@ -150,6 +159,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           total_tokens: 0
         }
       };
+
       res.json(openaiResponse);
     }
   } catch (error) {
@@ -177,4 +187,6 @@ app.all('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`OpenAI to NVIDIA NIM Proxy running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`Show reasoning: ${SHOW_REASONING}`);
+  console.log(`Thinking mode: ${ENABLE_THINKING_MODE}`);
 });
